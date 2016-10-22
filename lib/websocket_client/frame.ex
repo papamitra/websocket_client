@@ -1,5 +1,7 @@
 defmodule WebsocketClient.Frame do
 
+  alias WebsocketClient.Util
+
   defstruct fin: nil, opcode: nil, payload: nil
 
   def parse(<<fin :: 1,
@@ -32,6 +34,38 @@ defmodule WebsocketClient.Frame do
     payload :: binary-size(length),
     remain :: binary>>) do
     {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}
+  end
+
+  def create({opcode, data}) when byte_size(data) > 0xffff do
+    << 1 :: 1,
+      0 :: 3,
+      Util.opcode(opcode) :: 4,
+      1 :: 1,
+      127 :: 7,
+      byte_size(data) :: 64,
+      0 :: 32, # TODO
+      data :: binary >>
+  end
+
+  def create({opcode, data}) when byte_size(data) > 125 do
+    << 1 :: 1,
+      0 :: 3,
+      Util.opcode(opcode) :: 4,
+      1 :: 1,
+      126 :: 7,
+      byte_size(data) :: 16,
+      0 :: 32, # TODO
+      data :: binary >>
+  end
+
+  def create({opcode, data}) do
+    << 1 :: 1,
+      0 :: 3,
+      Util.opcode(opcode) :: 4,
+      1 :: 1,
+      byte_size(data) :: 7,
+      0 :: 32, # TODO
+      data :: binary >>
   end
 
 end

@@ -2,6 +2,7 @@ defmodule WebsocketClient do
   use GenServer
 
   alias WebsocketClient.Frame
+  alias WebsocketClient.Util
 
   @default_port_ws 80
   @default_port_wss 443
@@ -31,6 +32,10 @@ defmodule WebsocketClient do
   def init([mod, url]) do
     {:ok, socket} = url |> URI.parse |> connect
     {:ok, %{mod: mod, socket: socket, remain: <<>>, msg: nil }}
+  end
+
+  def send(pid, data) do
+    GenServer.call(pid, {:send, data})
   end
 
   def connect(%URI{scheme: "ws", host: host, port: port, path: path}) do
@@ -65,7 +70,7 @@ defmodule WebsocketClient do
     {:ok, socket}
   end
 
-  def handle_info({:tcp, socket, data}, state) do
+  def handle_info({:tcp, _socket, data}, state) do
     %{mod: mod, msg: msg, remain: remain} = state
     remain = remain <> :erlang.list_to_bitstring(data)
 
@@ -84,12 +89,23 @@ defmodule WebsocketClient do
     end
   end
 
-  def handle_info({event, socket, data}, state) do
+  def handle_info({_event, _socket, _data}, state) do
     IO.puts("handle_info other")
     state |> IO.inspect
 
     {:noreply, state}
   end
+
+  def handle_call({:send, data}, _from, %{socket: socket} = state) do
+    frame = Frame.create(data)
+
+    # TODO: error
+    socket |> :gen_tcp.send(frame)
+
+    {:reply, :ok, state}
+  end
+
+  # private
 
   defp get_header(socket) do
     case socket |> :gen_tcp.recv(0) do
@@ -101,7 +117,7 @@ defmodule WebsocketClient do
     end
   end
 
-  defp append_frame(%Message{opcode: opcode, payload: payload} = msg,
+  defp append_frame(%Message{opcode: _opcode, payload: payload} = msg,
       %Frame{fin: 0, opcode: 0, payload: frame_payload}) do
     {:cont, %{msg | payload: payload <> frame_payload}}
   end
@@ -110,7 +126,7 @@ defmodule WebsocketClient do
     {:cont, %Message{opcode: opcode, payload: payload}}
   end
 
-  defp append_frame(%Message{opcode: opcode, payload: payload} = msg,
+  defp append_frame(%Message{opcode: _opcode, payload: payload} = msg,
       %Frame{fin: 1, opcode: 0, payload: frame_payload}) do
     {:ok, %{msg | payload: payload <> frame_payload}}
   end
@@ -119,13 +135,8 @@ defmodule WebsocketClient do
     {:ok, %Message{opcode: opcode, payload: payload}}
   end
 
-  Enum.each [ text: 0x1, binary: 0x2, close: 0x8, ping: 0x9, pong: 0xA ], fn { name, code } ->
-    defp opcode(unquote(name)), do: unquote(code)
-    defp opcode(unquote(code)), do: unquote(name)
-  end
-
   defp dispatch_message(msg, mod) do
-    case opcode(msg.opcode) do
+    case Util.opcode(msg.opcode) do
       :text -> enter_handle_text(msg, mod)
       :binary ->
         IO.puts("opcode binary not implemented")
