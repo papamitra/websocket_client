@@ -10,7 +10,7 @@ defmodule WebsocketClient do
 
   def init(url) do
     {:ok, socket} = url |> URI.parse |> connect
-    {:ok, %{socket: socket}}
+    {:ok, %{socket: socket, remain: <<>>}}
   end
 
   def connect(%URI{scheme: "ws", host: host, port: port, path: path}) do
@@ -40,8 +40,41 @@ defmodule WebsocketClient do
 
     :ok = socket |> :inet.setopts([{:packet, :http_bin}])
     {:ok, {:http_response, _, 101, _}} = socket |> :gen_tcp.recv(0)
+    get_header(socket)
+
+    :ok = socket |> :inet.setopts([{:packet, :raw}, {:active, true}])
 
     {:ok, socket}
+  end
+
+  def handle_info({:tcp, socket, msg}, %{remain: remain} = state) do
+    IO.puts("handle_info tcp")
+    remain = remain <> :erlang.list_to_bitstring(msg)
+
+    {frame, remain} = remain |> WebsocketClient.Frame.parse
+
+    if remain != <<>> do
+      IO.puts("data remaining")
+    end
+
+    {:noreply, %{state | remain: remain}}
+  end
+
+  def handle_info({event, socket, data}, state) do
+    IO.puts("handle_info other")
+    event |> IO.puts
+
+    {:noreply, state}
+  end
+
+  defp get_header(socket) do
+    case socket |> :gen_tcp.recv(0) do
+      {:ok, {:http_header, _, name, _, value}} ->
+        "#{name}: #{value}" |> IO.puts
+        get_header(socket)
+      {:ok, :http_eoh} ->
+        :ok
+    end
   end
 
 end
