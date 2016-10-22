@@ -1,16 +1,36 @@
 defmodule WebsocketClient do
   use GenServer
 
+  alias WebsocketClient.Frame
+
   @default_port_ws 80
   @default_port_wss 443
 
-  def start_link(url) do
-    GenServer.start_link(__MODULE__, url)
+  @callback handle_recv(any) :: :ok
+
+  defmodule Message do
+    defstruct opcode: nil, payload: <<>>
   end
 
-  def init(url) do
+  defmacro __using__(_) do
+    quote location: :keep do
+      @behaviour WebsocketClient
+
+      def handle_text(payload) do
+        :ok
+      end
+
+      defoverridable [handle_text: 1]
+    end
+  end
+
+  def start_link(mod, url) do
+    GenServer.start_link(__MODULE__, [mod, url])
+  end
+
+  def init([mod, url]) do
     {:ok, socket} = url |> URI.parse |> connect
-    {:ok, %{socket: socket, remain: <<>>}}
+    {:ok, %{mod: mod, socket: socket, remain: <<>>, msg: nil }}
   end
 
   def connect(%URI{scheme: "ws", host: host, port: port, path: path}) do
@@ -18,8 +38,6 @@ defmodule WebsocketClient do
     port = port || @default_port_ws
 
     {:ok, socket} = :gen_tcp.connect(String.to_charlist(host), port, [{:active, false}])
-
-    IO.puts("connect2")
 
     path = path || "/"
     key = :base64.encode("1234567890123456")
@@ -47,9 +65,9 @@ defmodule WebsocketClient do
     {:ok, socket}
   end
 
-  def handle_info({:tcp, socket, msg}, %{remain: remain} = state) do
-    IO.puts("handle_info tcp")
-    remain = remain <> :erlang.list_to_bitstring(msg)
+  def handle_info({:tcp, socket, data}, state) do
+    %{mod: mod, msg: msg, remain: remain} = state
+    remain = remain <> :erlang.list_to_bitstring(data)
 
     {frame, remain} = remain |> WebsocketClient.Frame.parse
 
@@ -57,12 +75,18 @@ defmodule WebsocketClient do
       IO.puts("data remaining")
     end
 
-    {:noreply, %{state | remain: remain}}
+    case msg |> append_frame(frame) do
+      {:ok, new_msg} ->
+        new_msg |> dispatch_message(mod)
+        {:noreply, %{state | remain: remain, msg: nil}}
+      {:cont, new_msg} ->
+        {:noreply, %{state | remain: remain, msg: new_msg}}
+    end
   end
 
   def handle_info({event, socket, data}, state) do
     IO.puts("handle_info other")
-    event |> IO.puts
+    state |> IO.inspect
 
     {:noreply, state}
   end
@@ -75,6 +99,49 @@ defmodule WebsocketClient do
       {:ok, :http_eoh} ->
         :ok
     end
+  end
+
+  defp append_frame(%Message{opcode: opcode, payload: payload} = msg,
+      %Frame{fin: 0, opcode: 0, payload: frame_payload}) do
+    {:cont, %{msg | payload: payload <> frame_payload}}
+  end
+
+  defp append_frame(nil, %Frame{fin: 0, opcode: opcode, payload: payload}) do
+    {:cont, %Message{opcode: opcode, payload: payload}}
+  end
+
+  defp append_frame(%Message{opcode: opcode, payload: payload} = msg,
+      %Frame{fin: 1, opcode: 0, payload: frame_payload}) do
+    {:ok, %{msg | payload: payload <> frame_payload}}
+  end
+
+  defp append_frame(nil, %Frame{fin: 1, opcode: opcode, payload: payload}) do
+    {:ok, %Message{opcode: opcode, payload: payload}}
+  end
+
+  Enum.each [ text: 0x1, binary: 0x2, close: 0x8, ping: 0x9, pong: 0xA ], fn { name, code } ->
+    defp opcode(unquote(name)), do: unquote(code)
+    defp opcode(unquote(code)), do: unquote(name)
+  end
+
+  defp dispatch_message(msg, mod) do
+    case opcode(msg.opcode) do
+      :text -> enter_handle_text(msg, mod)
+      :binary ->
+        IO.puts("opcode binary not implemented")
+      :close ->
+        IO.puts("opcode close not implemented")
+      :ping ->
+        IO.puts("opcode ping not implemented")
+      :pong ->
+        IO.puts("opcode pong not implemented")
+    end
+
+    :ok
+  end
+
+  defp enter_handle_text(msg, mod) do
+    apply(mod, :handle_text, [msg.payload])
   end
 
 end
