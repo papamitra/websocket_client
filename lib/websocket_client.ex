@@ -3,6 +3,7 @@ defmodule WebsocketClient do
 
   alias WebsocketClient.Frame
   alias WebsocketClient.Util
+  alias WebsocketClient.Socket
 
   @default_port_ws 80
   @default_port_wss 443
@@ -55,7 +56,7 @@ defmodule WebsocketClient do
 
     port = port || @default_port_ws
 
-    {:ok, socket} = :gen_tcp.connect(String.to_charlist(host), port, [{:active, false}])
+    {:ok, socket} = Socket.Tcp.connect(String.to_charlist(host), port, [{:active, false}])
 
     path = path || "/"
     key = :base64.encode("1234567890123456")
@@ -71,14 +72,15 @@ defmodule WebsocketClient do
 
     IO.puts(handshake)
 
-    :ok = socket |> :inet.setopts([{:packet, :raw}])
-    :ok = socket |> :gen_tcp.send(handshake)
+    :ok = socket |> Socket.packet(:raw)
+    :ok = socket |> Socket.send(handshake)
 
-    :ok = socket |> :inet.setopts([{:packet, :http_bin}])
-    {:ok, {:http_response, _, 101, _}} = socket |> :gen_tcp.recv(0)
+    :ok = socket |> Socket.packet(:http_bin)
+    {:ok, {:http_response, _, 101, _}} = socket |> Socket.recv(0)
     get_header(socket)
 
-    :ok = socket |> :inet.setopts([{:packet, :raw}, {:active, true}])
+    :ok = socket |> Socket.packet(:raw)
+    :ok = socket |> Socket.active()
 
     {:ok, socket}
   end
@@ -117,7 +119,7 @@ defmodule WebsocketClient do
     frame = Frame.create(data)
 
     # TODO: error
-    socket |> :gen_tcp.send(frame)
+    socket |> Socket.send(frame)
 
     {:reply, :ok, state}
   end
@@ -125,7 +127,7 @@ defmodule WebsocketClient do
   # private
 
   defp get_header(socket) do
-    case socket |> :gen_tcp.recv(0) do
+    case socket |> Socket.recv(0) do
       {:ok, {:http_header, _, name, _, value}} ->
         "#{name}: #{value}" |> IO.puts
         get_header(socket)
