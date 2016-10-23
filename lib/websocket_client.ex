@@ -7,7 +7,11 @@ defmodule WebsocketClient do
   @default_port_ws 80
   @default_port_wss 443
 
-  @callback handle_recv(any) :: :ok
+  @callback init(any) ::
+  {:ok, any}
+
+  @callback handle_text(any, any) ::
+  {:ok, any}
 
   defmodule Message do
     defstruct opcode: nil, payload: <<>>
@@ -17,11 +21,15 @@ defmodule WebsocketClient do
     quote location: :keep do
       @behaviour WebsocketClient
 
-      def handle_text(payload) do
-        :ok
+      def init(args) do
+        {:ok, args}
       end
 
-      defoverridable [handle_text: 1]
+      def handle_text(_text, state) do
+        {:ok, state}
+      end
+
+      defoverridable [init: 1, handle_text: 2]
     end
   end
 
@@ -29,9 +37,14 @@ defmodule WebsocketClient do
     GenServer.start_link(__MODULE__, [mod, url])
   end
 
-  def init([mod, url]) do
-    {:ok, socket} = url |> URI.parse |> connect
-    {:ok, %{mod: mod, socket: socket, remain: <<>>, msg: nil }}
+  def init([mod, url] = args) do
+
+    case apply(mod, :init, [args]) do
+      {:ok, mod_state} ->
+        {:ok, socket} = url |> URI.parse |> connect
+        {:ok, %{mod: mod, socket: socket, remain: <<>>, msg: nil, mod_state: mod_state }}
+    end
+
   end
 
   def send(pid, data) do
@@ -71,7 +84,7 @@ defmodule WebsocketClient do
   end
 
   def handle_info({:tcp, _socket, data}, state) do
-    %{mod: mod, msg: msg, remain: remain} = state
+    %{mod: mod, msg: msg, remain: remain, mod_state: mod_state} = state
     remain = remain <> :erlang.list_to_bitstring(data)
 
     {frame, remain} = remain |> WebsocketClient.Frame.parse
@@ -82,8 +95,12 @@ defmodule WebsocketClient do
 
     case msg |> append_frame(frame) do
       {:ok, new_msg} ->
-        new_msg |> dispatch_message(mod)
-        {:noreply, %{state | remain: remain, msg: nil}}
+        case new_msg |> dispatch_message(mod, mod_state) do
+          {:ok, new_mod_state} ->
+            {:noreply, %{state | remain: remain, msg: nil, mod_state: new_mod_state}}
+          _ ->
+            {:noreply, state}
+        end
       {:cont, new_msg} ->
         {:noreply, %{state | remain: remain, msg: new_msg}}
     end
@@ -135,24 +152,26 @@ defmodule WebsocketClient do
     {:ok, %Message{opcode: opcode, payload: payload}}
   end
 
-  defp dispatch_message(msg, mod) do
+  defp dispatch_message(msg, mod, mod_state) do
     case Util.opcode(msg.opcode) do
-      :text -> enter_handle_text(msg, mod)
+      :text -> enter_handle_text(msg, mod, mod_state)
       :binary ->
         IO.puts("opcode binary not implemented")
+        {:ok, mod_state}
       :close ->
         IO.puts("opcode close not implemented")
+        {:ok, mod_state}
       :ping ->
         IO.puts("opcode ping not implemented")
+        {:ok, mod_state}
       :pong ->
         IO.puts("opcode pong not implemented")
+        {:ok, mod_state}
     end
-
-    :ok
   end
 
-  defp enter_handle_text(msg, mod) do
-    apply(mod, :handle_text, [msg.payload])
+  defp enter_handle_text(msg, mod, mod_state) do
+    apply(mod, :handle_text, [msg.payload, mod_state])
   end
 
 end

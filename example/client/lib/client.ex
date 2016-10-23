@@ -9,7 +9,7 @@ defmodule Client do
     WebsocketClient.send(pid, text)
   end
 
-  def handle_text(text) do
+  def handle_text(text, _state) do
     IO.puts("handle_text: #{text}")
   end
 
