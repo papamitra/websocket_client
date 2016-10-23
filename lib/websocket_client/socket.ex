@@ -44,3 +44,24 @@ defimpl WebsocketClient.Socket.Protocol, for: WebsocketClient.Socket.Tcp do
   end
 
 end
+
+defimpl WebsocketClient.Socket.Protocol, for: WebsocketClient.Socket.Ssl do
+  alias WebsocketClient.Socket.Ssl
+
+  def send(%Ssl{socket: socket}, data) do
+    socket |> :ssl.send(data)
+  end
+
+  def recv(%Ssl{socket: socket}, size) do
+    socket |> :ssl.recv(size)
+  end
+
+  def active(%Ssl{socket: socket}) do
+    socket |> :ssl.setopts([{:active, true}])
+  end
+
+  def packet(%Ssl{socket: socket}, mode) do
+    socket |> :ssl.setopts([{:packet, mode}])
+  end
+
+end

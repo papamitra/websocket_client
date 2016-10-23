@@ -2,6 +2,8 @@ defmodule Client do
   use WebsocketClient
 
   def start_link(url) do
+    :crypto.start()
+    :ssl.start()
     WebsocketClient.start_link(__MODULE__, url)
   end
 

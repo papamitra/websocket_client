@@ -52,39 +52,6 @@ defmodule WebsocketClient do
     GenServer.call(pid, {:send, data})
   end
 
-  def connect(%URI{scheme: "ws", host: host, port: port, path: path}) do
-
-    port = port || @default_port_ws
-
-    {:ok, socket} = Socket.Tcp.connect(String.to_charlist(host), port, [{:active, false}])
-
-    path = path || "/"
-    key = :base64.encode("1234567890123456")
-
-    handshake = [
-      "GET #{path} HTTP/1.1", "\r\n",
-      "Host: #{host}:#{port}", "\r\n",
-      "Upgrade: websocket", "\r\n",
-      "Connection: Upgrade", "\r\n",
-      "Sec-WebSocket-Key: #{key}", "\r\n",
-      "Sec-WebSocket-Version: 13", "\r\n",
-      "\r\n"]
-
-    IO.puts(handshake)
-
-    :ok = socket |> Socket.packet(:raw)
-    :ok = socket |> Socket.send(handshake)
-
-    :ok = socket |> Socket.packet(:http_bin)
-    {:ok, {:http_response, _, 101, _}} = socket |> Socket.recv(0)
-    get_header(socket)
-
-    :ok = socket |> Socket.packet(:raw)
-    :ok = socket |> Socket.active()
-
-    {:ok, socket}
-  end
-
   def handle_info({:tcp, _socket, data}, state) do
     %{mod: mod, msg: msg, remain: remain, mod_state: mod_state} = state
     remain = remain <> :erlang.list_to_bitstring(data)
@@ -125,6 +92,55 @@ defmodule WebsocketClient do
   end
 
   # private
+
+  defp handshake(socket, host, port, path) do
+    path = path || "/"
+    key = :base64.encode("1234567890123456")
+
+    handshake = [
+      "GET #{path} HTTP/1.1", "\r\n",
+      "Host: #{host}:#{port}", "\r\n",
+      "Upgrade: websocket", "\r\n",
+      "Connection: Upgrade", "\r\n",
+      "Sec-WebSocket-Key: #{key}", "\r\n",
+      "Sec-WebSocket-Version: 13", "\r\n",
+      "\r\n"]
+
+    IO.puts(handshake)
+
+    :ok = socket |> Socket.packet(:raw)
+    :ok = socket |> Socket.send(handshake)
+
+    :ok = socket |> Socket.packet(:http_bin)
+    {:ok, {:http_response, _, 101, _}} = socket |> Socket.recv(0)
+    get_header(socket)
+
+    :ok = socket |> Socket.packet(:raw)
+    :ok = socket |> Socket.active()
+  end
+
+  defp connect(%URI{scheme: "ws", host: host, port: port, path: path}) do
+
+    port = port || @default_port_ws
+
+    {:ok, socket} = Socket.Tcp.connect(String.to_charlist(host), port, [{:active, false}])
+
+    handshake(socket, host, port, path)
+
+    {:ok, socket}
+  end
+
+  defp connect(%URI{scheme: "wss", host: host, port: port, path: path}) do
+
+    port = port || @default_port_wss
+
+    {:ok, socket} = Socket.Ssl.connect(String.to_charlist(host), port, [{:mode, :binary},
+                                                                        {:active, false}])
+
+    handshake(socket, host, port, path)
+
+    {:ok, socket}
+  end
 
   defp get_header(socket) do
     case socket |> Socket.recv(0) do
