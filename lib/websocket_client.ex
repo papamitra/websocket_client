@@ -14,6 +14,9 @@ defmodule WebsocketClient do
   @callback handle_text(any, any) ::
   {:ok, any}
 
+  @callback handle_binary(any,any) ::
+  {:ok, any}
+
   defmodule Message do
     defstruct opcode: nil, payload: <<>>
   end
@@ -30,7 +33,11 @@ defmodule WebsocketClient do
         {:ok, state}
       end
 
-      defoverridable [init: 1, handle_text: 2]
+      def handle_binary(_binary, state) do
+        {:ok, state}
+      end
+
+      defoverridable [init: 1, handle_text: 2, handle_binary: 2]
     end
   end
 
@@ -203,10 +210,10 @@ defmodule WebsocketClient do
 
   defp dispatch_message(msg, mod, mod_state) do
     case Util.opcode(msg.opcode) do
-      :text -> enter_handle_text(msg, mod, mod_state)
+      :text ->
+        apply(mod, :handle_text, [msg.payload, mod_state])
       :binary ->
-        IO.puts("opcode binary not implemented")
-        {:ok, mod_state}
+        apply(mod, :handle_binary, [msg.payload, mod_state])
       :close ->
         IO.puts("opcode close not implemented")
         {:ok, mod_state}
@@ -220,7 +227,7 @@ defmodule WebsocketClient do
   end
 
   defp enter_handle_text(msg, mod, mod_state) do
-    apply(mod, :handle_text, [msg.payload, mod_state])
+
   end
 
 end
