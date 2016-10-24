@@ -60,7 +60,7 @@ defmodule WebsocketClient do
   end
 
   def handle_info({:tcp, _socket, data}, state) do
-    %{mod: mod, msg: msg, remain: remain, mod_state: mod_state} = state
+    %{mod: mod, socket: socket, msg: msg, remain: remain, mod_state: mod_state} = state
     remain = remain <> :erlang.list_to_bitstring(data)
 
     {frame, remain} = remain |> WebsocketClient.Frame.parse
@@ -71,7 +71,7 @@ defmodule WebsocketClient do
 
     case msg |> append_frame(frame) do
       {:ok, new_msg} ->
-        case new_msg |> dispatch_message(mod, mod_state) do
+        case new_msg |> dispatch_message(mod, socket, mod_state) do
           {:ok, new_mod_state} ->
             {:noreply, %{state | remain: remain, msg: nil, mod_state: new_mod_state}}
           _ ->
@@ -208,7 +208,7 @@ defmodule WebsocketClient do
     {:ok, %Message{opcode: opcode, payload: payload}}
   end
 
-  defp dispatch_message(msg, mod, mod_state) do
+  defp dispatch_message(msg, mod, socket, mod_state) do
     case Util.opcode(msg.opcode) do
       :text ->
         apply(mod, :handle_text, [msg.payload, mod_state])
@@ -218,16 +218,16 @@ defmodule WebsocketClient do
         IO.puts("opcode close not implemented")
         {:ok, mod_state}
       :ping ->
-        IO.puts("opcode ping not implemented")
+        :ok = send_pong(msg, socket)
         {:ok, mod_state}
       :pong ->
-        IO.puts("opcode pong not implemented")
         {:ok, mod_state}
     end
   end
 
-  defp enter_handle_text(msg, mod, mod_state) do
-
+  defp send_pong(msg, socket) do
+    frame = Frame.create({:pong, msg.payload})
+    socket |> Socket.send(frame)
   end
 
 end
