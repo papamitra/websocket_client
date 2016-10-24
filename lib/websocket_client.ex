@@ -123,7 +123,16 @@ defmodule WebsocketClient do
 
     port = port || @default_port_ws
 
-    {:ok, socket} = Socket.Tcp.connect(String.to_charlist(host), port, [{:active, false}])
+    socket = case System.get_env("http_proxy") |> URI.parse do
+               %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
+                 proxy_port = proxy_port || 80
+                 {:ok, proxy} = Socket.Tcp.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}])
+                 :ok = proxy |> connect_over_proxy(host, port)
+                 proxy
+               _ ->
+                 {:ok, socket} = Socket.Tcp.connect(String.to_charlist(host), port, [{:active, false}])
+                 socket
+             end
 
     handshake(socket, host, port, path)
 
@@ -134,12 +143,34 @@ defmodule WebsocketClient do
 
     port = port || @default_port_wss
 
-    {:ok, socket} = Socket.Ssl.connect(String.to_charlist(host), port, [{:mode, :binary},
-                                                                        {:active, false}])
+    socket = case System.get_env("https_proxy") |> URI.parse do
+               %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
+                 proxy_port = proxy_port || 443
+                 {:ok, proxy} = Socket.Ssl.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}, {:mode, :binary}])
+                 :ok = proxy |> connect_over_proxy(host, port)
+                 proxy
+               _ ->
+                 {:ok, socket} = Socket.Ssl.connect(String.to_charlist(host), port, [{:mode, :binary},
+                                                                                     {:active, false}])
+                 socket
+             end
 
     handshake(socket, host, port, path)
 
     {:ok, socket}
+  end
+
+  defp connect_over_proxy(socket, host, port) do
+    :ok = socket |> Socket.packet(:raw)
+    socket |> Socket.send([
+      "CONNECT #{host}:#{port} HTTP/1.1", "\r\n",
+      "\r\n"])
+
+    socket |> Socket.packet(:http_bin)
+    {:ok, {:http_response, _, 200, _}} = socket |> Socket.recv(0)
+    {:ok, :http_eoh} = socket |> Socket.recv(0)
+
+    :ok
   end
 
   defp get_header(socket) do
