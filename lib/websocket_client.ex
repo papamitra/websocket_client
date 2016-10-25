@@ -9,13 +9,13 @@ defmodule WebsocketClient do
   @default_port_wss 443
 
   @callback init(any) ::
-  {:ok, any}
+  {:ok, any} | :ignore | {:stop, any}
 
   @callback handle_text(any, any) ::
-  {:ok, any}
+  {:ok, any} | {:reply, {atom, binary}, any} | {:close, binary, any}
 
   @callback handle_binary(any,any) ::
-  {:ok, any}
+  {:ok, any} | {:reply, {atom, binary}, any} | {:close, binary, any}
 
   defmodule Message do
     defstruct opcode: nil, payload: <<>>
@@ -41,22 +41,33 @@ defmodule WebsocketClient do
     end
   end
 
+  @spec start_link(atom, binary) :: {:ok, pid} | :ignore | {:error, any}
   def start_link(mod, url) do
     GenServer.start_link(__MODULE__, [mod, url])
   end
 
-  def init([mod, url] = args) do
+  @spec send(pid, binary) :: any
+  def send(pid, data) do
+    GenServer.call(pid, {:send, data})
+  end
 
+  @spec close(pid, integer) :: :ok
+  def close(pid, code) when 0 <= code and code <= 0xffff do
+    GenServer.cast(pid, {:close, code})
+  end
+
+  # callback function
+
+  def init([mod, url] = args) do
     case apply(mod, :init, [args]) do
       {:ok, mod_state} ->
         {:ok, socket} = url |> URI.parse |> connect
-        {:ok, %{mod: mod, socket: socket, remain: <<>>, msg: nil, mod_state: mod_state }}
+        {:ok, %{status: :inited, mod: mod, socket: socket, remain: <<>>, msg: nil, mod_state: mod_state }}
+      {:ok, _mod_state, _timeout} ->
+        {:stop, :bad_return_value}
+      other ->
+        other
     end
-
-  end
-
-  def send(pid, data) do
-    GenServer.call(pid, {:send, data})
   end
 
   def handle_info({:tcp, _socket, data}, state) do
@@ -80,6 +91,10 @@ defmodule WebsocketClient do
       {:cont, new_msg} ->
         {:noreply, %{state | remain: remain, msg: new_msg}}
     end
+  end
+
+  def handle_info({:close, code}, %{socket: socket}) do
+    socket |> Socket.send({:close, << code :: 16>>})
   end
 
   def handle_info({_event, _socket, _data}, state) do
@@ -211,12 +226,13 @@ defmodule WebsocketClient do
   defp dispatch_message(msg, mod, socket, mod_state) do
     case Util.opcode(msg.opcode) do
       :text ->
-        apply(mod, :handle_text, [msg.payload, mod_state])
+        do_handle_text(msg, mod, socket, mod_state)
       :binary ->
-        apply(mod, :handle_binary, [msg.payload, mod_state])
+        do_handle_binary(msg, mod, socket, mod_state)
       :close ->
         IO.puts("opcode close not implemented")
-        {:ok, mod_state}
+        # TODO
+        exit(:normal)
       :ping ->
         :ok = send_pong(msg, socket)
         {:ok, mod_state}
@@ -230,4 +246,31 @@ defmodule WebsocketClient do
     socket |> Socket.send(frame)
   end
 
+  defp do_handle_text(msg, mod, socket, mod_state) do
+    case apply(mod, :handle_text, [msg.payload, mod_state]) do
+      {:ok, new_mod_state} ->
+        {:ok, new_mod_state}
+      {:reply, data, new_mod_state} ->
+        frame = Frame.create(data)
+        :ok = socket |> Socket.send(frame)
+        {:ok, new_mod_state}
+      {:close, _new_mode_state} ->
+        # TODO
+        exit(:normal)
+    end
+  end
+
+  defp do_handle_binary(msg, mod, socket, mod_state) do
+    case apply(mod, :handle_binary, [msg.payload, mod_state]) do
+      {:ok, new_mod_state} ->
+        {:ok, new_mod_state}
+      {:reply, data, new_mod_state} ->
+        frame = Frame.create(data)
+        :ok = socket |> Socket.send(frame)
+        {:ok, new_mod_state}
+      {:close, _new_mode_state} ->
+        # TODO
+        exit(:normal)
+    end
+  end
 end

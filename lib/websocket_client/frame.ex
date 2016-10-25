@@ -1,8 +1,11 @@
 defmodule WebsocketClient.Frame do
 
   alias WebsocketClient.Util
+  alias WebsocketClient.Frame
 
   defstruct fin: nil, opcode: nil, payload: nil
+
+  @type t :: %Frame{ fin: byte, opcode: byte, payload: binary}
 
   def parse(<<fin :: 1,
     0 :: 3,
