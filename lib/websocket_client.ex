@@ -70,31 +70,20 @@ defmodule WebsocketClient do
     end
   end
 
-  def handle_info({:tcp, _socket, data}, state) do
-    %{mod: mod, socket: socket, msg: msg, remain: remain, mod_state: mod_state} = state
-    remain = remain <> :erlang.list_to_bitstring(data)
-
-    {frame, remain} = remain |> WebsocketClient.Frame.parse
-
-    if remain != <<>> do
-      IO.puts("data remaining")
-    end
-
-    case msg |> append_frame(frame) do
-      {:ok, new_msg} ->
-        case new_msg |> dispatch_message(mod, socket, mod_state) do
-          {:ok, new_mod_state} ->
-            {:noreply, %{state | remain: remain, msg: nil, mod_state: new_mod_state}}
-          _ ->
-            {:noreply, state}
-        end
-      {:cont, new_msg} ->
-        {:noreply, %{state | remain: remain, msg: new_msg}}
-    end
+  def handle_info({:tcp, _socket, data}, state) when is_list(data) do
+    handle_recv(:erlang.list_to_binary(data), state)
   end
 
-  def handle_info({:ssl, socket, data}, state) do
-    handle_info({:tcp, socket, data}, state)
+  def handle_info({:tcp, _socket, data}, state) do
+    handle_recv(data, state)
+  end
+
+  def handle_info({:ssl, _socket, data}, state) when is_list(data) do
+    handle_recv(:erlang.list_to_binary(data), state)
+  end
+
+  def handle_info({:ssl, _socket, data}, state) do
+    handle_recv(data, state)
   end
 
   def handle_info({:close, code}, %{socket: socket}) do
@@ -149,7 +138,7 @@ defmodule WebsocketClient do
 
     port = port || @default_port_ws
 
-    socket = case System.get_env("http_proxy") |> URI.parse do
+    socket = case (System.get_env("http_proxy") || "") |> URI.parse do
                %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
                  proxy_port = proxy_port || 80
                  {:ok, proxy} = Socket.Tcp.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}])
@@ -169,7 +158,7 @@ defmodule WebsocketClient do
 
     port = port || @default_port_wss
 
-    {:ok, socket} = case System.get_env("https_proxy") |> URI.parse do
+    {:ok, socket} = case (System.get_env("https_proxy") || "") |> URI.parse do
                       %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
                         proxy_port = proxy_port || 443
                         {:ok, socket} = Socket.Tcp.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}])
@@ -205,6 +194,29 @@ defmodule WebsocketClient do
         get_header(socket)
       {:ok, :http_eoh} ->
         :ok
+    end
+  end
+
+  defp handle_recv(data, state) do
+    %{mod: mod, socket: socket, msg: msg, remain: remain, mod_state: mod_state} = state
+    remain = remain <> data
+
+    {frame, remain} = remain |> WebsocketClient.Frame.parse
+
+    if remain != <<>> do
+      IO.puts("data remaining")
+    end
+
+    case msg |> append_frame(frame) do
+      {:ok, new_msg} ->
+        case new_msg |> dispatch_message(mod, socket, mod_state) do
+          {:ok, new_mod_state} ->
+            {:noreply, %{state | remain: remain, msg: nil, mod_state: new_mod_state}}
+          _ ->
+            {:noreply, state}
+        end
+      {:cont, new_msg} ->
+        {:noreply, %{state | remain: remain, msg: new_msg}}
     end
   end
 

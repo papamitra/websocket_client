@@ -8,7 +8,7 @@ defmodule WebsocketClient.Socket.Ssl do
   @spec connect(String.t, :inet.port_number, [any]) :: {:ok, t} | {:error, any}
   def connect(address, port, opts) do
     case :ssl.connect(address, port, opts) do
-      {:ok, {socket, _}} ->
+      {:ok, socket} ->
         {:ok, %Ssl{socket: socket}}
       err ->
         err
