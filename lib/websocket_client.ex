@@ -93,6 +93,10 @@ defmodule WebsocketClient do
     end
   end
 
+  def handle_info({:ssl, socket, data}, state) do
+    handle_info({:tcp, socket, data}, state)
+  end
+
   def handle_info({:close, code}, %{socket: socket}) do
     socket |> Socket.send({:close, << code :: 16>>})
   end
@@ -165,17 +169,16 @@ defmodule WebsocketClient do
 
     port = port || @default_port_wss
 
-    socket = case System.get_env("https_proxy") |> URI.parse do
-               %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
-                 proxy_port = proxy_port || 443
-                 {:ok, proxy} = Socket.Ssl.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}, {:mode, :binary}])
-                 :ok = proxy |> connect_over_proxy(host, port)
-                 proxy
-               _ ->
-                 {:ok, socket} = Socket.Ssl.connect(String.to_charlist(host), port, [{:mode, :binary},
-                                                                                     {:active, false}])
-                 socket
-             end
+    {:ok, socket} = case System.get_env("https_proxy") |> URI.parse do
+                      %URI{host: proxy_host, port: proxy_port} when not is_nil(proxy_host) ->
+                        proxy_port = proxy_port || 443
+                        {:ok, socket} = Socket.Tcp.connect(String.to_charlist(proxy_host), proxy_port, [{:active, false}])
+                        :ok = socket |> connect_over_proxy(host, port)
+                        socket.socket |> Socket.Ssl.upgrade_to_ssl
+                      _ ->
+                        Socket.Ssl.connect(String.to_charlist(host), port, [{:mode, :binary},
+                                                                            {:active, false}])
+                    end
 
     handshake(socket, host, port, path)
 
