@@ -41,9 +41,9 @@ defmodule WebsocketClient do
     end
   end
 
-  @spec start_link(atom, binary) :: {:ok, pid} | :ignore | {:error, any}
-  def start_link(mod, url) do
-    GenServer.start_link(__MODULE__, [mod, url])
+  @spec start_link(atom, binary, any) :: {:ok, pid} | :ignore | {:error, any}
+  def start_link(mod, url, data) do
+    GenServer.start_link(__MODULE__, [mod, url, data])
   end
 
   @spec send(pid, binary) :: any
@@ -58,8 +58,8 @@ defmodule WebsocketClient do
 
   # callback function
 
-  def init([mod, url] = args) do
-    case apply(mod, :init, [args]) do
+  def init([mod, url, data] = args) do
+    case apply(mod, :init, [data]) do
       {:ok, mod_state} ->
         {:ok, socket} = url |> URI.parse |> connect
         {:ok, %{status: :inited, mod: mod, socket: socket, remain: <<>>, msg: nil, mod_state: mod_state }}
