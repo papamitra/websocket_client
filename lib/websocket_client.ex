@@ -17,7 +17,7 @@ defmodule WebsocketClient do
     GenServer.start_link(__MODULE__, [recv_pid, url])
   end
 
-  @spec send(pid, binary) :: any
+  @spec send(pid, {atom, binary}) :: any
   def send(pid, data) do
     GenServer.call(pid, {:send, data})
   end
