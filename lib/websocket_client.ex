@@ -8,42 +8,13 @@ defmodule WebsocketClient do
   @default_port_ws 80
   @default_port_wss 443
 
-  @callback init(any) ::
-  {:ok, any} | :ignore | {:stop, any}
-
-  @callback handle_text(any, any) ::
-  {:ok, any} | {:reply, {atom, binary}, any} | {:close, binary, any}
-
-  @callback handle_binary(any,any) ::
-  {:ok, any} | {:reply, {atom, binary}, any} | {:close, binary, any}
-
   defmodule Message do
     defstruct opcode: nil, payload: <<>>
   end
 
-  defmacro __using__(_) do
-    quote location: :keep do
-      @behaviour WebsocketClient
-
-      def init(args) do
-        {:ok, args}
-      end
-
-      def handle_text(_text, state) do
-        {:ok, state}
-      end
-
-      def handle_binary(_binary, state) do
-        {:ok, state}
-      end
-
-      defoverridable [init: 1, handle_text: 2, handle_binary: 2]
-    end
-  end
-
-  @spec start_link(atom, binary, any) :: {:ok, pid} | :ignore | {:error, any}
-  def start_link(mod, url, data) do
-    GenServer.start_link(__MODULE__, [mod, url, data])
+  @spec start_link(pid, binary) :: {:ok, pid} | :ignore | {:error, any}
+  def start_link(recv_pid, url) do
+    GenServer.start_link(__MODULE__, [recv_pid, url])
   end
 
   @spec send(pid, binary) :: any
@@ -58,13 +29,10 @@ defmodule WebsocketClient do
 
   # callback function
 
-  def init([mod, url, data] = args) do
-    case apply(mod, :init, [data]) do
-      {:ok, mod_state} ->
-        {:ok, socket} = url |> URI.parse |> connect
-        {:ok, %{status: :inited, mod: mod, socket: socket, remain: <<>>, msg: nil, mod_state: mod_state }}
-      {:ok, _mod_state, _timeout} ->
-        {:stop, :bad_return_value}
+  def init([recv_pid, url]) do
+     case url |> URI.parse |> connect do
+       {:ok, socket} ->
+         {:ok, %{status: :inited, recv_pid: recv_pid, socket: socket, remain: <<>>, msg: nil}}
       other ->
         other
     end
@@ -198,7 +166,7 @@ defmodule WebsocketClient do
   end
 
   defp handle_recv(data, state) do
-    %{mod: mod, socket: socket, msg: msg, remain: remain, mod_state: mod_state} = state
+    %{recv_pid: recv_pid, socket: socket, msg: msg, remain: remain} = state
     remain = remain <> data
 
     {frame, remain} = remain |> WebsocketClient.Frame.parse
@@ -209,9 +177,9 @@ defmodule WebsocketClient do
 
     case msg |> append_frame(frame) do
       {:ok, new_msg} ->
-        case new_msg |> dispatch_message(mod, socket, mod_state) do
-          {:ok, new_mod_state} ->
-            {:noreply, %{state | remain: remain, msg: nil, mod_state: new_mod_state}}
+        case new_msg |> dispatch_message(recv_pid, socket) do
+          :ok ->
+            {:noreply, %{state | remain: remain, msg: nil}}
           _ ->
             {:noreply, state}
         end
@@ -238,21 +206,20 @@ defmodule WebsocketClient do
     {:ok, %Message{opcode: opcode, payload: payload}}
   end
 
-  defp dispatch_message(msg, mod, socket, mod_state) do
+  defp dispatch_message(msg, recv_pid, socket) do
     case Util.opcode(msg.opcode) do
       :text ->
-        do_handle_text(msg, mod, socket, mod_state)
+        send_recv_text(msg, recv_pid)
       :binary ->
-        do_handle_binary(msg, mod, socket, mod_state)
+        send_recv_binary(msg, recv_pid)
       :close ->
         IO.puts("opcode close not implemented")
         # TODO
         exit(:normal)
       :ping ->
-        :ok = send_pong(msg, socket)
-        {:ok, mod_state}
+        send_pong(msg, socket)
       :pong ->
-        {:ok, mod_state}
+        :ok
     end
   end
 
@@ -261,31 +228,11 @@ defmodule WebsocketClient do
     socket |> Socket.send(frame)
   end
 
-  defp do_handle_text(msg, mod, socket, mod_state) do
-    case apply(mod, :handle_text, [msg.payload, mod_state]) do
-      {:ok, new_mod_state} ->
-        {:ok, new_mod_state}
-      {:reply, data, new_mod_state} ->
-        frame = Frame.create(data)
-        :ok = socket |> Socket.send(frame)
-        {:ok, new_mod_state}
-      {:close, _new_mode_state} ->
-        # TODO
-        exit(:normal)
-    end
+  defp send_recv_text(msg, recv_pid) do
+    recv_pid |> Kernel.send({:recv_text, msg.payload})
   end
 
-  defp do_handle_binary(msg, mod, socket, mod_state) do
-    case apply(mod, :handle_binary, [msg.payload, mod_state]) do
-      {:ok, new_mod_state} ->
-        {:ok, new_mod_state}
-      {:reply, data, new_mod_state} ->
-        frame = Frame.create(data)
-        :ok = socket |> Socket.send(frame)
-        {:ok, new_mod_state}
-      {:close, _new_mode_state} ->
-        # TODO
-        exit(:normal)
-    end
+  defp send_recv_binary(msg, recv_pid) do
+    recv_pid |> Kernel.send({:recv_binary, msg.payload})
   end
 end
