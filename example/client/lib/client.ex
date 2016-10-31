@@ -1,6 +1,8 @@
 defmodule Client do
   use WebsocketClient
 
+  require Logger
+
   def start_link(url) do
     :crypto.start()
     :ssl.start()
@@ -12,7 +14,7 @@ defmodule Client do
   end
 
   def handle_text(text, _state) do
-    IO.puts("handle_text: #{text}")
+    Logger.info "handle_text: #{text}"
   end
 
 end
