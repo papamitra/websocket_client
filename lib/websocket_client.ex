@@ -5,6 +5,8 @@ defmodule WebsocketClient do
   alias WebsocketClient.Util
   alias WebsocketClient.Socket
 
+  require Logger
+
   @default_port_ws 80
   @default_port_wss 443
 
@@ -58,9 +60,8 @@ defmodule WebsocketClient do
     socket |> Socket.send({:close, << code :: 16>>})
   end
 
-  def handle_info({_event, _socket, _data}, state) do
-    IO.puts("handle_info other")
-    state |> IO.inspect
+  def handle_info({event, _socket, _data}, state) do
+    Logger.warn "handle_info other: #{inspect event}"
 
     {:noreply, state}
   end
@@ -89,7 +90,7 @@ defmodule WebsocketClient do
       "Sec-WebSocket-Version: 13", "\r\n",
       "\r\n"]
 
-    IO.puts(handshake)
+    Logger.debug handshake
 
     :ok = socket |> Socket.packet(:raw)
     :ok = socket |> Socket.send(handshake)
@@ -158,7 +159,7 @@ defmodule WebsocketClient do
   defp get_header(socket) do
     case socket |> Socket.recv(0) do
       {:ok, {:http_header, _, name, _, value}} ->
-        "#{name}: #{value}" |> IO.puts
+        Logger.debug "#{name}: #{value}"
         get_header(socket)
       {:ok, :http_eoh} ->
         :ok
@@ -172,7 +173,9 @@ defmodule WebsocketClient do
     {frame, remain} = remain |> WebsocketClient.Frame.parse
 
     if remain != <<>> do
-      IO.puts("data remaining")
+      Logger.debug "data remaining"
+      Logger.debug "frame: #{inspect frame}"
+      Logger.debug "remain: #{inspect remain}"
     end
 
     case msg |> append_frame(frame) do
@@ -213,7 +216,7 @@ defmodule WebsocketClient do
       :binary ->
         send_recv_binary(msg, recv_pid)
       :close ->
-        IO.puts("opcode close not implemented")
+        Logger.warn "opcode close not implemented"
         # TODO
         exit(:normal)
       :ping ->
