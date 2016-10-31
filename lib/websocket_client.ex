@@ -170,24 +170,23 @@ defmodule WebsocketClient do
     %{recv_pid: recv_pid, socket: socket, msg: msg, remain: remain} = state
     remain = remain <> data
 
-    {frame, remain} = remain |> WebsocketClient.Frame.parse
-
-    if remain != <<>> do
-      Logger.debug "data remaining"
-      Logger.debug "frame: #{inspect frame}"
-      Logger.debug "remain: #{inspect remain}"
-    end
-
-    case msg |> append_frame(frame) do
-      {:ok, new_msg} ->
-        case new_msg |> dispatch_message(recv_pid, socket) do
-          :ok ->
-            {:noreply, %{state | remain: remain, msg: nil}}
-          _ ->
-            {:noreply, state}
-        end
-      {:cont, new_msg} ->
-        {:noreply, %{state | remain: remain, msg: new_msg}}
+    try do
+      case remain |> WebsocketClient.Frame.parse do
+        {:ok, {frame, remain}} ->
+          case msg |> append_frame(frame) do
+            {:ok, new_msg} ->
+              new_msg |> dispatch_message(recv_pid, socket)
+              handle_recv(<<>>, %{state | remain: remain, msg: nil})
+            {:cont, new_msg} ->
+              handle_recv(<<>>, %{state | remain: remain, msg: new_msg})
+          end
+        :too_short ->
+          {:noreply, %{state | remain: remain}}
+      end
+    rescue
+      error ->
+        Logger.warn "frame parse failed: #{inspect error}"
+        {:noreply, %{state | remain: <<>>, msg: nil}}
     end
   end
 

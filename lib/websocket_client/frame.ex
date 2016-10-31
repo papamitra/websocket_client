@@ -7,15 +7,27 @@ defmodule WebsocketClient.Frame do
 
   @type t :: %Frame{ fin: byte, opcode: byte, payload: binary}
 
+  require Logger
+
+  def parse(data) when bit_size(data) < 32 do
+    :too_short
+  end
+
   def parse(<<fin :: 1,
     0 :: 3,
     opcode :: 4,
     0 :: 1,
     126 :: 7,
     length :: 16,
-    payload :: binary-size(length),
-    remain :: binary>>) do
-    {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}
+    data :: binary>>) do
+
+    case byte_size(data) >= length do
+      true ->
+        << payload :: binary-size(length), remain :: binary>> = data
+        {:ok, {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}}
+      false ->
+        :too_short
+    end
   end
 
   def parse(<<fin :: 1,
@@ -24,9 +36,15 @@ defmodule WebsocketClient.Frame do
     0 :: 1,
     127 :: 7,
     length :: 32,
-    payload :: binary-size(length),
-    remain :: binary>>) do
-    {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}
+    data :: binary >>) do
+
+    case byte_size(data) >= length do
+      true ->
+        << payload :: binary-size(length), remain :: binary>> = data
+        {:ok, {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}}
+      false ->
+        :too_short
+    end
   end
 
   def parse(<<fin :: 1,
@@ -34,9 +52,15 @@ defmodule WebsocketClient.Frame do
     opcode :: 4,
     0 :: 1,
     length :: 7,
-    payload :: binary-size(length),
-    remain :: binary>>) do
-    {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}
+    data :: binary>>) do
+
+    case byte_size(data) >= length do
+      true ->
+        << payload :: binary-size(length), remain :: bitstring>> = data
+        {:ok, {%WebsocketClient.Frame{fin: fin, opcode: opcode, payload: payload}, remain}}
+      false ->
+        :too_short
+    end
   end
 
   def create({opcode, data}) when byte_size(data) > 0xffff do
