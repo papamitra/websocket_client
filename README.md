@@ -1,16 +1,16 @@
 # WebsocketClient
 
-**TODO: Add description**
+Elixir Websocket Client
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed as:
+the package can be installed as:
 
   1. Add `websocket_client` to your list of dependencies in `mix.exs`:
 
     ```elixir
     def deps do
-      [{:websocket_client, "~> 0.1.0"}]
+      [{:websocket_client, github: "papamitra/websocket_client"}]
     end
     ```
 
