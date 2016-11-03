@@ -14,6 +14,8 @@ defmodule WebsocketClient do
     defstruct opcode: nil, payload: <<>>
   end
 
+  def start, do: :application.ensure_all_started(:websocket_client)
+
   @spec start_link(pid, binary) :: {:ok, pid} | :ignore | {:error, any}
   def start_link(recv_pid, url) do
     GenServer.start_link(__MODULE__, [recv_pid, url])
