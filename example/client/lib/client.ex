@@ -1,20 +1,28 @@
 defmodule Client do
-  use WebsocketClient
-
+  use GenServer
   require Logger
 
   def start_link(url) do
-    :crypto.start()
-    :ssl.start()
-    WebsocketClient.start_link(__MODULE__, url)
+    GenServer.start_link(__MODULE__, [url])
+  end
+
+  def init([url]) do
+    {:ok, socket} = WebsocketClient.start_link(self, url)
+    {:ok, %{socket: socket}}
   end
 
   def send(pid, text) do
-    WebsocketClient.send(pid, text)
+    Kernel.send(pid, {:send, text})
   end
 
-  def handle_text(text, _state) do
-    Logger.info "handle_text: #{text}"
+  def handle_info({:recv_text, text}, state) do
+    Logger.info "handle_text: #{inspect text}"
+    {:noreply, state}
+  end
+
+  def handle_info({:send, message}, %{socket: socket} = state) do
+    socket |> WebsocketClient.send({:text, message})
+    {:noreply, state}
   end
 
 end
